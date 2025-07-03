@@ -164,6 +164,11 @@ RCT_EXPORT_METHOD(saveToCameraRoll:(NSURLRequest *)request
   __block PHObjectPlaceholder *placeholder;
 
   void (^saveBlock)(void) = ^void() {
+    // performChanges and the completionHandler are called on
+    // arbitrary threads, not the main thread - this is safe
+    // for now since all JS is queued and executed on a single thread.
+    // We should reevaluate this if that assumption changes.
+
     [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
       PHAssetChangeRequest *assetRequest ;
       if ([options[@"type"] isEqualToString:@"video"]) {
@@ -295,26 +300,9 @@ RCT_EXPORT_METHOD(getAlbums:(NSDictionary *)params
   PHFetchOptions* options = [[PHFetchOptions alloc] init];
   if ([albumType isEqualToString:@"SmartAlbum"] || [albumType isEqualToString:@"All"]) {
     fetchedAlbumType = @"SmartAlbum";
-
-    // Handling "Recently Added" album specifically
-    PHFetchResult<PHAssetCollection *> *recentlyAddedAlbum = [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeSmartAlbum 
-                                                                                                   subtype:PHAssetCollectionSubtypeSmartAlbumRecentlyAdded 
-                                                                                                   options:nil];
-
-    if (recentlyAddedAlbum.count > 0) {
-      // Log for debugging
-      NSLog(@"Found 'Recently Added' album");
-
-      [recentlyAddedAlbum enumerateObjectsUsingBlock:convertAsset];
-    }
-
-    // Fetching other smart albums
-    PHFetchResult<PHAssetCollection *> *const assets = [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeSmartAlbum 
-                                                                                               subtype:PHAssetCollectionSubtypeAny 
-                                                                                               options:options];
+    PHFetchResult<PHAssetCollection *> *const assets = [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeSmartAlbum subtype:PHAssetCollectionSubtypeAny options:options];
     [assets enumerateObjectsUsingBlock:convertAsset];
   }
-  
   if ([albumType isEqualToString:@"Album"] || [albumType isEqualToString:@"All"]) {
     fetchedAlbumType = @"Album";
     PHFetchResult<PHAssetCollection *> *const assets = [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeAlbum subtype:PHAssetCollectionSubtypeAny options:options];
@@ -446,12 +434,29 @@ RCT_EXPORT_METHOD(getPhotos:(NSDictionary *)params
   NSString *const afterCursor = [RCTConvert NSString:params[@"after"]];
   NSString *const groupName = [RCTConvert NSString:params[@"groupName"]];
   NSString *const groupTypes = [[RCTConvert NSString:params[@"groupTypes"]] lowercaseString];
+  NSLog(@"groupTypes after conversion: %@", groupTypes);
   NSString *const mediaType = [RCTConvert NSString:params[@"assetType"]];
   NSUInteger const fromTime = [RCTConvert NSInteger:params[@"fromTime"]];
   NSUInteger const toTime = [RCTConvert NSInteger:params[@"toTime"]];
   NSArray<NSString *> *const mimeTypes = [RCTConvert NSStringArray:params[@"mimeTypes"]];
   NSArray<NSString *> *const include = [RCTConvert NSStringArray:params[@"include"]];
+  if (groupTypes) {
+    NSLog(@"groupTypes: %@", groupTypes);
+  } else {
+    NSLog(@"groupTypes is nil");
+  }
 
+  if (groupName) {
+    NSLog(@"groupName: %@", groupName);
+  } else {
+    NSLog(@"groupName is nil");
+  }
+
+  if (afterCursor) {
+    NSLog(@"afterCursor: %@", afterCursor);
+  } else {
+    NSLog(@"afterCursor is nil");
+  }
   BOOL __block includeSharedAlbums = [params[@"includeSharedAlbums"] boolValue];
 
   BOOL __block includeFilename = [include indexOfObject:@"filename"] != NSNotFound;
@@ -561,14 +566,25 @@ RCT_EXPORT_METHOD(getPhotos:(NSDictionary *)params
     } else {
       PHFetchResult<PHAssetCollection *> * assetCollectionFetchResult;
       if ([groupTypes isEqualToString:@"smartalbum"]) {
-        assetCollectionFetchResult = [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeSmartAlbum subtype:PHAssetCollectionSubtypeAny options:nil];
-        [assetCollectionFetchResult enumerateObjectsUsingBlock:^(PHAssetCollection * _Nonnull assetCollection, NSUInteger collectionIdx, BOOL * _Nonnull stopCollections) {
-          if ([assetCollection.localizedTitle isEqualToString:groupName]) {
-            PHFetchResult<PHAsset *> *const assetsFetchResult = [PHAsset fetchAssetsInAssetCollection:assetCollection options:assetFetchOptions];
-            [assetsFetchResult enumerateObjectsUsingBlock:collectAsset];
-            *stopCollections = stopCollections_;
-          }
-        }];
+	NSLog(@"groupTypes is smartalbum");
+	if ([groupName isEqualToString:@"Recently Added"]) {
+		NSLog(@"groupName is Recently Added");
+		// Specifically fetch RecentlyAdded smart album
+		assetCollectionFetchResult = [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeSmartAlbum 
+						subtype:PHAssetCollectionSubtypeSmartAlbumRecentlyAdded 
+						options:nil];
+	} else {
+		assetCollectionFetchResult = [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeSmartAlbum subtype:PHAssetCollectionSubtypeAny options:nil];
+	}
+	NSLog(@"assetCollectionFetchResult: %@", assetCollectionFetchResult);
+	[assetCollectionFetchResult enumerateObjectsUsingBlock:^(PHAssetCollection * _Nonnull assetCollection, NSUInteger collectionIdx, BOOL * _Nonnull stopCollections) {
+	    NSLog(@"Comparing - Collection Title: '%@', GroupName: '%@'", assetCollection.localizedTitle, groupName);
+	    if ([assetCollection.localizedTitle isEqualToString:groupName]) {
+		PHFetchResult<PHAsset *> *const assetsFetchResult = [PHAsset fetchAssetsInAssetCollection:assetCollection options:assetFetchOptions];
+		[assetsFetchResult enumerateObjectsUsingBlock:collectAsset];
+		*stopCollections = stopCollections_;
+	    }
+	}];
       } else {
         PHAssetCollectionSubtype const collectionSubtype = [RCTConvert PHAssetCollectionSubtype:groupTypes];
 
