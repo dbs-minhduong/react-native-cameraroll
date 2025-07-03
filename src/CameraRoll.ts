@@ -153,6 +153,7 @@ export type PhotoIdentifier = {
       heading?: number;
       speed?: number;
     } | null;
+    isDuplicate: boolean;
   };
 };
 
@@ -273,7 +274,13 @@ export class CameraRoll {
         type = 'video';
       else type = 'photo';
     }
-    return RNCCameraRoll.saveToCameraRoll(tag, {type, album});
+    return RNCCameraRoll.saveToCameraRoll(tag, {type, album}).then((result: any) => {
+      // Ensure isDuplicate is present in node
+      if (result && result.node && typeof result.node.isDuplicate === 'undefined') {
+        result.node.isDuplicate = false;
+      }
+      return result as PhotoIdentifier;
+    });
   }
 
   static saveToCameraRoll(
@@ -310,7 +317,24 @@ export class CameraRoll {
    */
   static getPhotos(params: GetPhotosParams): Promise<PhotoIdentifiersPage> {
     params = CameraRoll.getParamsWithDefaults(params);
-    return RNCCameraRoll.getPhotos(params);
+    return RNCCameraRoll.getPhotos(params).then((result: any) => {
+      // Ensure isDuplicate is present in each node
+      if (result && Array.isArray(result.edges)) {
+        result.edges = result.edges.map((edge: any) => {
+          if (edge && edge.node && typeof edge.node.isDuplicate === 'undefined') {
+            return {
+              ...edge,
+              node: {
+                ...edge.node,
+                isDuplicate: false,
+              },
+            };
+          }
+          return edge;
+        });
+      }
+      return result as PhotoIdentifiersPage;
+    });
   }
 
   /**
@@ -329,7 +353,13 @@ export class CameraRoll {
       convertHeicImages: false,
       ...options,
     };
-    return RNCCameraRoll.getPhotoByInternalID(internalID, conversionOptions);
+    return RNCCameraRoll.getPhotoByInternalID(internalID, conversionOptions).then((result: any) => {
+      // Ensure isDuplicate is present in node
+      if (result && result.node && typeof result.node.isDuplicate === 'undefined') {
+        result.node.isDuplicate = false;
+      }
+      return result as PhotoIdentifier;
+    });
   }
 
   /**

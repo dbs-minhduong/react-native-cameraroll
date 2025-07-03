@@ -347,6 +347,7 @@ static void RCTResolvePromise(RCTPromiseResolveBlock resolve,
                    includePlayableDuration:(BOOL)includePlayableDuration
                            includeLocation:(BOOL)includeLocation
                            includeSourceType:(BOOL)includeSourceType
+                           isDuplicate:(BOOL)isDuplicate
 {
   NSString *const uri = [NSString stringWithFormat:@"ph://%@", [asset localIdentifier]];
 
@@ -419,7 +420,8 @@ static void RCTResolvePromise(RCTPromiseResolveBlock resolve,
           @"altitude": @(loc.altitude),
           @"heading": @(loc.course),
           @"speed": @(loc.speed), // speed in m/s
-        } : [NSNull null])
+        } : [NSNull null]),
+      @"isDuplicate": @(isDuplicate),
       }
   };
 }
@@ -492,6 +494,8 @@ RCT_EXPORT_METHOD(getPhotos:(NSDictionary *)params
   BOOL __block hasNextPage = NO;
   BOOL __block resolvedPromise = NO;
   NSMutableArray<NSDictionary<NSString *, id> *> *assets = [NSMutableArray new];
+  // Thêm dictionary để check duplicate
+  NSMutableDictionary *duplicateCheckDict = [NSMutableDictionary dictionary];
 
   BOOL __block stopCollections_;
 
@@ -537,6 +541,34 @@ RCT_EXPORT_METHOD(getPhotos:(NSDictionary *)params
         }
       }
 
+      // Tạo key để check duplicate
+      NSArray<PHAssetResource *> *assetResources = [PHAssetResource assetResourcesForAsset:asset];
+      PHAssetResource *resource = [assetResources firstObject];
+      NSString *filename = resource ? resource.originalFilename : @"";
+      NSString *key = [NSString stringWithFormat:@"%@-%ldx%ld-%@-%f",
+        filename,
+        (long)asset.pixelWidth,
+        (long)asset.pixelHeight,
+        asset.creationDate ? asset.creationDate : @"",
+        asset.duration];
+      BOOL isDuplicate = NO;
+      if (duplicateCheckDict[key]) {
+        isDuplicate = YES;
+      } else {
+        duplicateCheckDict[key] = @YES;
+      }
+      NSDictionary* dict = [self convertAssetToDictionary:asset
+                                            includeAlbums:includeAlbums
+                                          includeFilename:includeFilename
+                                     includeFileExtension:includeFileExtension
+                                         includeImageSize:includeImageSize
+                                          includeFileSize:includeFileSize
+                                  includePlayableDuration:includePlayableDuration
+                                          includeLocation:includeLocation
+                                          includeSourceType:includeSourceType
+                                          isDuplicate:isDuplicate];
+      [assets addObject:dict];
+
       // If we've accumulated enough results to resolve a single promise
       if (first == assets.count) {
         *stopAssets = YES;
@@ -547,17 +579,6 @@ RCT_EXPORT_METHOD(getPhotos:(NSDictionary *)params
         resolvedPromise = YES;
         return;
       }
-
-      NSDictionary* dict = [self convertAssetToDictionary:asset
-                                            includeAlbums:includeAlbums
-                                          includeFilename:includeFilename
-                                     includeFileExtension:includeFileExtension
-                                         includeImageSize:includeImageSize
-                                          includeFileSize:includeFileSize
-                                  includePlayableDuration:includePlayableDuration
-                                          includeLocation:includeLocation
-                                          includeSourceType:includeSourceType];
-      [assets addObject:dict];
     };
 
     if ([groupTypes isEqualToString:@"all"]) {
@@ -744,7 +765,7 @@ RCT_EXPORT_METHOD(getPhotoByInternalID:(NSString *)internalId
 
             resolve(@{
                       @"node": @{
-                          @"type": assetMediaTypeLabel,
+                          @"type": ç,
                           @"subTypes":assetMediaSubtypesLabel,
                           @"image": @{
                               @"filepath": fullPath,
@@ -815,7 +836,8 @@ RCT_EXPORT_METHOD(getPhotoByInternalID:(NSString *)internalId
                                                 @"altitude": @(loc.altitude),
                                                 @"heading": @(loc.course),
                                                 @"speed": @(loc.speed), // speed in m/s
-                                                } : @{})
+                                                } : @{}),
+                          @"isDuplicate": @NO
                           }
                       });
           } else {
