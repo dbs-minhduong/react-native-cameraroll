@@ -164,11 +164,6 @@ RCT_EXPORT_METHOD(saveToCameraRoll:(NSURLRequest *)request
   __block PHObjectPlaceholder *placeholder;
 
   void (^saveBlock)(void) = ^void() {
-    // performChanges and the completionHandler are called on
-    // arbitrary threads, not the main thread - this is safe
-    // for now since all JS is queued and executed on a single thread.
-    // We should reevaluate this if that assumption changes.
-
     [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
       PHAssetChangeRequest *assetRequest ;
       if ([options[@"type"] isEqualToString:@"video"]) {
@@ -300,9 +295,26 @@ RCT_EXPORT_METHOD(getAlbums:(NSDictionary *)params
   PHFetchOptions* options = [[PHFetchOptions alloc] init];
   if ([albumType isEqualToString:@"SmartAlbum"] || [albumType isEqualToString:@"All"]) {
     fetchedAlbumType = @"SmartAlbum";
-    PHFetchResult<PHAssetCollection *> *const assets = [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeSmartAlbum subtype:PHAssetCollectionSubtypeAny options:options];
+
+    // Handling "Recently Added" album specifically
+    PHFetchResult<PHAssetCollection *> *recentlyAddedAlbum = [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeSmartAlbum 
+                                                                                                   subtype:PHAssetCollectionSubtypeSmartAlbumRecentlyAdded 
+                                                                                                   options:nil];
+
+    if (recentlyAddedAlbum.count > 0) {
+      // Log for debugging
+      NSLog(@"Found 'Recently Added' album");
+
+      [recentlyAddedAlbum enumerateObjectsUsingBlock:convertAsset];
+    }
+
+    // Fetching other smart albums
+    PHFetchResult<PHAssetCollection *> *const assets = [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeSmartAlbum 
+                                                                                               subtype:PHAssetCollectionSubtypeAny 
+                                                                                               options:options];
     [assets enumerateObjectsUsingBlock:convertAsset];
   }
+  
   if ([albumType isEqualToString:@"Album"] || [albumType isEqualToString:@"All"]) {
     fetchedAlbumType = @"Album";
     PHFetchResult<PHAssetCollection *> *const assets = [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeAlbum subtype:PHAssetCollectionSubtypeAny options:options];
